@@ -86,31 +86,11 @@ class DropBoxController{
             let file = JSON.parse(li.dataset.file);
             let key = li.dataset.key;
             //para guardar no proprio servidor
-           /* let formData = new FormData();
+            let formData = new FormData();
             formData.append('path',file.path);
             formData.append('key',key);
-            promises.push(this.ajax('/file','DELETE',formData));*/
-            //para gardar no firebase storage
-            promises.push(new Promise((resolve,reject)=>{
-                if(file.type === 'folder'){
-                    this.removeFoderTask(this.correntFolder.join('/'),file.name).then(()=>{
-                        resolve({
-                            fields:{key}
-                        })
-                        }).catch(err=>{
-                            reject(err);
-                        })  
-                }else if(file.type){
-                    this.removeFile( this.correntFolder.join('/'),file.name).then(()=>{
-                    resolve({
-                        fields:{key}
-                    })
-                    }).catch(err=>{
-                        reject(err);
-                    })  
-                }
-            
-            }));
+            promises.push(this.ajax('/file','DELETE',formData));
+
         });
          return Promise.all(promises);
     }
@@ -177,19 +157,10 @@ class DropBoxController{
 
             this.uploadsTask(event.target.files).then(responses => {
                 //local no servidor
-                /*responses.forEach(resp => {
-                    this.getFireBaseRef().push().set(resp.files['input-file']);
-                });*/https://console.firebase.google.com/u/0/project/dropbox-clone-f7e83/storage/dropbox-clone-f7e83.appspot.com/files~2F
-                //filebase storage
                 responses.forEach(resp => {
-                    this.getFireBaseRef().push().set({
-                     name: resp.name,
-                     type: resp.contentType,
-                     path:'https://console.firebase.google.com/u/0/project/dropbox-clone-f7e83/storage/dropbox-clone-f7e83.appspot.com/files~2F'+resp.fullPath,
-                     size:resp.size
-                    })
-
+                    this.getFireBaseRef().push().set(resp.files['input-file']);
                 });
+
                 this.uploadComplete();
             }).catch(err => {
                 this.uploadComplete();
@@ -235,7 +206,7 @@ class DropBoxController{
         });
     }
     //evento de multiplos uploads para guardar no servidor que esta o back-end
-    /*uploadsTask(files){
+    uploadsTask(files){
         let promises = [];
 
         [...files].forEach( file => {
@@ -248,34 +219,8 @@ class DropBoxController{
                 }));
         });
         return Promise.all(promises);
-    }*/
-    //evento de multiplos uploads para guardar no firebase storage
-    uploadsTask(files){
-        let promises = [];
-
-        [...files].forEach( file => {
-            promises.push(new Promise((resolve,reject)=>{
-                let fileRef = firebase.storage().ref(this.correntFolder.join('/')).child(file.name);
-                let task = fileRef.put(file);
-                task.on('state_changed',snapshot=>{
-                    this.uploadProgress({
-                        loaded:snapshot.bytesTransferred,
-                        total: snapshot.totalBytes
-                    },file)
-                },error =>{
-                    console.error(error);
-                    reject(error)
-                },()=>{
-                    fileRef.getMetadata().then(metadata=>{
-                        resolve(metadata);
-                    }).catch(err=>{
-                        reject(err);
-                    })
-                });
-            }));
-        });
-        return Promise.all(promises);
     }
+
     uploadProgress(event,file){
 
         let timespent = Date.now() - this.startUploadTime;
@@ -525,14 +470,8 @@ class DropBoxController{
                     break;
                 default:
                     //servidor local
-                    //window.open('/file?path='+file.path);
-                    //firebase
-                   
-                    var rad = 'https://firebasestorage.googleapis.com/v0/b/dropbox-clone-f7e83.appspot.com/o/';
-                    var fim = '?alt=media';
-                    console.log(rad+this.url.join('%2F')+'%2F'+file.name+fim)
-                    window.open(rad+this.url.join('%2F')+'%2F'+file.name+fim)
-               
+                    window.open('/file?path='+file.path);
+                    
       
                     
             }
