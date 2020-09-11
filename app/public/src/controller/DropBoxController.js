@@ -1,5 +1,9 @@
 class DropBoxController{
     constructor(){
+
+        this.correntFolder = ['hcode'];
+        this.url = ['hcode'];
+
         this.onselectionchange = new Event('selectionchange');
         this.btnSendFileEl = document.getElementById('btn-send-file');
         this.inputFilesEl = document.querySelector('#files');
@@ -8,13 +12,15 @@ class DropBoxController{
         this.nameFileEl = this.snackModalEl.querySelector('.filename');
         this.timeLeftEl = this.snackModalEl.querySelector('.timeleft');
         this.listFileEl = document.querySelector('#list-of-files-and-directories');
+        this.navEl = document.querySelector('#browse-location');
 
         this.btnNewFoder = document.querySelector('#btn-new-folder');
         this.btnRename = document.querySelector('#btn-rename');
         this.btnDelete = document.querySelector('#btn-delete');
         this.connectFireBase();
         this.initEvent();
-        this.readFiles();
+        this. openFolder();
+        
         
     }
     //evento de conecção do FireBase
@@ -37,21 +43,94 @@ class DropBoxController{
     getSelector(){
         return this.listFileEl.querySelectorAll('.selected');
     }
+    //metodo de remosão de arquivos
+    removeFoderTask(ref,name){
+        return new Promise((resove,reject)=>{
+            let folderRef = this.getFireBaseRef(ref + '/' + name);
+
+            folderRef.on('value', snapshot =>{
+                folderRef.off('value');
+                snapshot.forEach(item=>{
+                    let data = item.val();
+                    data.key = item.key;
+                    if(data.type === 'folder'){
+                        this. removeFoderTask(ref + '/' + name,data.name).then(()=>{
+                            resove({
+                                fields:{
+                                    key:data.key
+                                }
+                            })
+                        }).catch(err=>{
+                            reject(err);
+                        });
+                    }else if(data.type){
+                        this.removeFile(ref + '/' + name,data.name).then(()=>{
+                            resove({
+                                fields:{
+                                    key:data.key
+                                }
+                            })
+                        }).catch(err=>{
+                            reject(err);
+                        });
+                    }
+                })
+                folderRef.remove();
+                
+            })
+        })
+    }
     removeTask(){
         let promises= [];
         this.getSelector().forEach(li=>{
             let file = JSON.parse(li.dataset.file);
             let key = li.dataset.key;
-            let formData = new FormData();
+            //para guardar no proprio servidor
+           /* let formData = new FormData();
             formData.append('path',file.path);
             formData.append('key',key);
-            promises.push(this.ajax('/file','DELETE',formData));
-           
+            promises.push(this.ajax('/file','DELETE',formData));*/
+            //para gardar no firebase storage
+            promises.push(new Promise((resolve,reject)=>{
+                if(file.type === 'folder'){
+                    this.removeFoderTask(this.correntFolder.join('/'),file.name).then(()=>{
+                        resolve({
+                            fields:{key}
+                        })
+                        }).catch(err=>{
+                            reject(err);
+                        })  
+                }else if(file.type){
+                    this.removeFile( this.correntFolder.join('/'),file.name).then(()=>{
+                    resolve({
+                        fields:{key}
+                    })
+                    }).catch(err=>{
+                        reject(err);
+                    })  
+                }
+            
+            }));
         });
          return Promise.all(promises);
     }
+    //metodo de remoção
+    removeFile(ref,name){
+        let fileRef = firebase.storage().ref(ref).child(name);
+        return fileRef.delete();
+    }
     //evento de click
     initEvent(){
+        this.btnNewFoder.addEventListener('click',e=>{
+            let  name = prompt('Nome da nova Pasta:');
+            if(name){
+                this.getFireBaseRef().push().set({
+                    name,
+                    type:'folder',
+                    path:  this.correntFolder.join('/')
+                })
+            }
+        })
         this.btnDelete.addEventListener('click', e=>{
             
             this.removeTask().then( responses=>{
@@ -97,8 +176,19 @@ class DropBoxController{
             this.btnSendFileEl.disabled = true;
 
             this.uploadsTask(event.target.files).then(responses => {
-                responses.forEach(resp => {
+                //local no servidor
+                /*responses.forEach(resp => {
                     this.getFireBaseRef().push().set(resp.files['input-file']);
+                });*/https://console.firebase.google.com/u/0/project/dropbox-clone-f7e83/storage/dropbox-clone-f7e83.appspot.com/files~2F
+                //filebase storage
+                responses.forEach(resp => {
+                    this.getFireBaseRef().push().set({
+                     name: resp.name,
+                     type: resp.contentType,
+                     path:'https://console.firebase.google.com/u/0/project/dropbox-clone-f7e83/storage/dropbox-clone-f7e83.appspot.com/files~2F'+resp.fullPath,
+                     size:resp.size
+                    })
+
                 });
                 this.uploadComplete();
             }).catch(err => {
@@ -116,8 +206,9 @@ class DropBoxController{
         this.btnSendFileEl.disabled = false;
     }
     //referencia para o FireBase
-    getFireBaseRef(){
-        return firebase.database().ref('files');
+    getFireBaseRef(path){
+        if(!path) path = this.correntFolder.join('/');
+        return firebase.database().ref(path);
     }
     //evento de mostrar a modal
     modalShow(modal = true){
@@ -143,8 +234,8 @@ class DropBoxController{
              ajax.send(formData);
         });
     }
-    //evento de multiplos uploads
-    uploadsTask(files){
+    //evento de multiplos uploads para guardar no servidor que esta o back-end
+    /*uploadsTask(files){
         let promises = [];
 
         [...files].forEach( file => {
@@ -155,6 +246,33 @@ class DropBoxController{
                 },()=>{
                     this.startUploadTime = Date.now();
                 }));
+        });
+        return Promise.all(promises);
+    }*/
+    //evento de multiplos uploads para guardar no firebase storage
+    uploadsTask(files){
+        let promises = [];
+
+        [...files].forEach( file => {
+            promises.push(new Promise((resolve,reject)=>{
+                let fileRef = firebase.storage().ref(this.correntFolder.join('/')).child(file.name);
+                let task = fileRef.put(file);
+                task.on('state_changed',snapshot=>{
+                    this.uploadProgress({
+                        loaded:snapshot.bytesTransferred,
+                        total: snapshot.totalBytes
+                    },file)
+                },error =>{
+                    console.error(error);
+                    reject(error)
+                },()=>{
+                    fileRef.getMetadata().then(metadata=>{
+                        resolve(metadata);
+                    }).catch(err=>{
+                        reject(err);
+                    })
+                });
+            }));
         });
         return Promise.all(promises);
     }
@@ -344,18 +462,82 @@ class DropBoxController{
         return li;
     }
     readFiles(){
+        this.lastFoder = this.correntFolder.join('/');
         this.getFireBaseRef().on('value', snapshot =>{
             this.listFileEl.innerHTML = '';
             snapshot.forEach(snapshotItem => {
                 let key = snapshotItem.key;
                 let data = snapshotItem.val();
-                this.listFileEl.appendChild(this.getFileView(data, key));
+                if(data.type){
+                     this.listFileEl.appendChild(this.getFileView(data, key));
+                }
+               
             })
         })
     }
+    openFolder(){
+        if(this.lastFoder) this.getFireBaseRef(this.lastFoder).off('value');
+        this.renderNav();
+        this.readFiles();
+    }
+    renderNav(){
+        let nav = document.createElement('nav');
+        let path = [];
+        for(let i=0; i< this.correntFolder.length;i++){
+            let span = document.createElement('span');
+            let folderName = this.correntFolder[i];
+            path.push(folderName);
+            if((i + 1) === this.correntFolder.length){
+                span.innerHTML = folderName;
+            }else{
+                span.className = 'breadcrumb-segment__wrapper';
+                span.innerHTML = 
+                `<span class="ue-effect-container uee-BreadCrumbSegment-link-0">
+                    <a href="#" data-path="${path.join('/')}" class="breadcrumb-segment">${folderName}</a>
+                </span>
+                <svg width="24" height="24" viewBox="0 0 24 24" class="mc-icon-template-stateless" style="top: 4px; position: relative;">
+                    <title>arrow-right</title>
+                    <path d="M10.414 7.05l4.95 4.95-4.95 4.95L9 15.534 12.536 12 9 8.464z" fill="#637282" fill-rule="evenodd"></path>
+                </svg>`;
+            }
+            nav.appendChild(span);
+        }
+        this.navEl.innerHTML = nav.innerHTML;
+        this.navEl.querySelectorAll('a').forEach(a=>{
+            a.addEventListener('click',e=>{
+                e.preventDefault();
+                this.correntFolder = a.dataset.path.split('/');
+                this.openFolder();
+            })
+        })
+    }
+
     initEventsLi(li){
-        li.addEventListener('click', e=>{
-            
+       
+        li.addEventListener('dblclick',e=>{
+            let file = JSON.parse(li.dataset.file);
+
+            switch(file.type){
+                case 'folder':
+                    this.correntFolder.push(file.name);
+                    this.openFolder();
+                    this.url.push(file.name)
+                    break;
+                default:
+                    //servidor local
+                    //window.open('/file?path='+file.path);
+                    //firebase
+                   
+                    var rad = 'https://firebasestorage.googleapis.com/v0/b/dropbox-clone-f7e83.appspot.com/o/';
+                    var fim = '?alt=media';
+                    console.log(rad+this.url.join('%2F')+'%2F'+file.name+fim)
+                    window.open(rad+this.url.join('%2F')+'%2F'+file.name+fim)
+               
+      
+                    
+            }
+        })
+        li.addEventListener('click', e=>{          
             
             if(e.shiftKey){
                 let firstLi = this.listFileEl.querySelector('.selected');
